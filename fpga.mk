@@ -7,7 +7,7 @@ usage:
 	@cat $(SELF_DIR)/fpga.txt
 
 # Don't delete these
-.PRECIOUS: build/%.d build/%.blif build/%.bin build/%.asc
+.PRECIOUS: build/%.d build/%.json build/%.bin build/%.asc
 
 # Top module
 TOP ?= top
@@ -19,7 +19,7 @@ TOOLCHAIN = $(HOME)/.apio/packages/toolchain-icestorm/bin
 export PATH := $(TOOLCHAIN):$(PATH)
 
 YOSYS ?= yosys
-PNR ?= arachne-pnr
+PNR ?= nextpnr-ice40
 ICEPACK ?= icepack
 ICEPROG ?= iceprog
 ICEBURN ?= iCEburn
@@ -44,28 +44,28 @@ PCF := $(SELF_DIR)/pcf/$(BOARD).pcf
 YOSYS_OPTS =
 
 ifeq ($(BOARD),icestick)
-PNR_OPTS = -d 1k -P tq144
+PNR_OPTS = --hx1k --package tq144
 DEVICE = hx1k
 CHIPDB = 1k
 PROG = $(ICEPROG)
 endif
 
 ifeq ($(BOARD),iceblink)
-PNR_OPTS = -d 1k -P qn84
+PNR_OPTS = --lp1k --package qn84
 DEVICE = lp1k
 CHIPDB = 1k
 PROG = $(ICEBURN) -vew
 endif
 
 ifeq ($(BOARD),bx)
-PNR_OPTS = -d 8k -P cm81
+PNR_OPTS = --lp8k --package cm81
 DEVICE = lp8k
 CHIPDB = 8k
 PROG = $(TINYPROG) -p
 endif
 
 ifeq ($(BOARD),icebreaker)
-PNR_OPTS = -d 5k -P sg48
+PNR_OPTS = --up5k --package sg48
 DEVICE = up5k
 CHIPDB = 5k
 PROG = $(ICEPROG)
@@ -84,21 +84,21 @@ endif
 
 build/%.d: %.v
 	@mkdir -p $(dir $@)
-	@$(SELF_DIR)/make-deps $(@:.d=.bx.blif) $< > $@
-	@$(SELF_DIR)/make-deps $(@:.d=.icestick.blif) $< >> $@
-	@$(SELF_DIR)/make-deps $(@:.d=.iceblink.blif) $< >> $@
+	@$(SELF_DIR)/make-deps $(@:.d=.bx.json) $< > $@
+	@$(SELF_DIR)/make-deps $(@:.d=.icestick.json) $< >> $@
+	@$(SELF_DIR)/make-deps $(@:.d=.iceblink.json) $< >> $@
 	@$(SELF_DIR)/make-deps $(@:.d=.out) $< >> $@
 
 # Synthesis
 
-build/%.$(BOARD).blif: %.v build/%.d
+build/%.$(BOARD).json: %.v build/%.d
 	$(YOSYS) $(YOSYS_OPTS) \
 		-p "verilog_defines -DBOARD_$(BOARD) -DBOARD=$(BOARD)" \
 		-p "read_verilog -noautowire $<" \
-		-p "synth_ice40 -top $(TOP) -blif $@"
+		-p "synth_ice40 -top $(TOP) -json $@"
 
-build/%.$(BOARD).asc: build/%.$(BOARD).blif $(PCF)
-	$(PNR) -p $(PCF) $(PNR_OPTS) $< -o $@
+build/%.$(BOARD).asc: build/%.$(BOARD).json $(PCF)
+	$(PNR) $(PNR_OPTS) --pcf $(PCF) --json $< --asc $@
 
 build/%.bin: build/%.asc
 	$(ICEPACK) $< $@
@@ -112,13 +112,13 @@ build/%.out: %.v build/%.d
 
 TESTS = $(wildcard *_tb.v)
 
-blif bin flash sim run time::
+json bin flash sim run time::
 ifeq ($(V),)
 	$(error Define target name first, e.g.: make $@ V=myfile.v)
 endif
 
-.PHONY: blif
-blif:: build/$(V:.v=.$(BOARD).blif)
+.PHONY: json
+json:: build/$(V:.v=.$(BOARD).json)
 
 .PHONY: bin
 bin:: build/$(V:.v=.$(BOARD).bin)
@@ -152,6 +152,6 @@ test::
 
 .PHONY: clean
 clean:
-	rm -f build/*
+	rm -rf build/*
 
 include $(shell find build -name '*.d')
